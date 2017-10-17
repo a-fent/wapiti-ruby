@@ -33,8 +33,12 @@
 #include <stdio.h>
 
 #include <unistd.h>
+
+// MSYS2 & Cygwin (?) include this POSIX support
+#ifndef __MINGW64__
 #include <sys/time.h>
 #include <sys/resource.h>
+#endif
 
 #include "wapiti.h"
 #include "decoder.h"

@@ -30,10 +30,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
-#ifndef _WIN32
-#include <sys/time.h>
-#endif
+// Ruby.h deals with cross-platform issues of sys/time.h, time.h, timeval 
+#include <ruby.h>
 
 #include "options.h"
 #include "sequence.h"

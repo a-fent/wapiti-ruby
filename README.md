@@ -5,8 +5,9 @@ The Wapiti-Ruby gem provides a wicked fast linear-chain CRF
 API for sequence segmentation and labelling; it is based on the
 codebase of [wapiti](http://wapiti.limsi.fr/).
 
-[![Build Status](https://secure.travis-ci.org/inukshuk/wapiti-ruby.png)](http://travis-ci.org/inukshuk/wapiti-ruby)
-[![Coverage Status](https://coveralls.io/repos/inukshuk/wapiti-ruby/badge.png?branch=master)](https://coveralls.io/r/inukshuk/wapiti-ruby?branch=master)
+[![Linux Build Status](https://travis-ci.org/inukshuk/wapiti-ruby.svg?branch=master)](https://travis-ci.org/inukshuk/wapiti-ruby)
+[![Windows Build Status](https://ci.appveyor.com/api/projects/status/12rtxe2o8p55g1w6/branch/master?svg=true)](https://ci.appveyor.com/project/inukshuk/wapiti-ruby/branch/master)
+[![Coverage Status](https://coveralls.io/repos/github/inukshuk/wapiti-ruby/badge.svg?branch=master)](https://coveralls.io/github/inukshuk/wapiti-ruby?branch=master)
 
 Requirements
 ------------
@@ -16,7 +17,6 @@ all necessary packages through your distribution.
 
 The Wapiti Ruby gem has been confirmed to work with MRI 2.x, 1.9.x, 1.8.7,
 and Rubinius.
-
 
 Quickstart
 ----------
@@ -143,30 +143,6 @@ are also available through the associated attribute readers).
     :sequences=>{:total=>77, :errors=>50, :rate=>64.93506493506494}}
 
 
-
-Citing
-------
-If you're using Wapiti-Ruby for research purposes, please use the following
-citation of the original wapiti package:
-
-    @article{lavergne2010practical,
-      author    = {Lavergne, Thomas and Capp\'{e}, Olivier and Yvon, Fran\c{c}ois},
-      title     = {Practical Very Large Scale {CRFs}},
-      booktitle = {Proceedings the 48th Annual Meeting of the Association for
-                  Computational Linguistics (ACL)},
-      month     = {July},
-      year      = {2010},
-      location  = {Uppsala, Sweden},
-      publisher = {Association for Computational Linguistics},
-      pages     = {504--513},
-      url       = {http://www.aclweb.org/anthology/P10-1052}
-    }
-
-If you're profiting from any of the Wapiti-Ruby specific features you are
-welcome to also refer back to the
-[Wapiti-Ruby homepage](http://github.com/inukshuk/wapiti-ruby/).
-
-
 Contributing
 ------------
 The Wapiti-Ruby source code is
@@ -183,7 +159,7 @@ example, fix the bug and submit a pull request.
 
 License
 -------
-Copyright 2011-2014 Sylvester Keil. All rights reserved.
+Copyright 2011-2017 Sylvester Keil. All rights reserved.
 
 Copyright 2009-2013 CNRS. All rights reserved.
 

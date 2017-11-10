@@ -35,9 +35,8 @@
 #define unused(v) ((void)(v))
 #define none ((uint64_t)-1)
 
-// This is compiling with warnings on MingW64, because ruby provides
-// equivalent definitions.
 #define min(a, b) ((a) < (b) ? (a) : (b))
+#undef max
 #define max(a, b) ((a) < (b) ? (b) : (a))
 
 void fatal(const char *msg, ...);

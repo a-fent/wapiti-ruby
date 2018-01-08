@@ -1,28 +1,52 @@
 module Wapiti
   class Options
-
     include Comparable
 
-    class << self
+    @attribute_names = %w{
+      algorithm
+      check
+      compact
+      compress
+      convergence_window
+      jobsize
+      max_iterations
+      maxent
+      pattern
+      posterior
+      rho1
+      rho2
+      score
+      skip_tokens
+      sparse
+      stop_epsilon
+      stop_window
+      threads
+      type
+    }.map(&:to_sym).freeze
 
-      # Returns a sorted list of available option attributes.
-      def attribute_names
-        @attribute_names ||= %w{ stop_window convergence_window posterior
-          max_iterations jobsize threads rho1 rho2 stop_epsilon score check
-          algorithm pattern development_data maxent compact sparse skip_tokens
-          compress }.sort.map(&:to_sym).freeze
-      end
+    @algorithms = %w{
+      auto
+      bcd
+      l-bfgs
+      rprop
+      rprop+
+      rprop-
+      sgd-l1
+    }.freeze
+
+    @types = %{
+      crf
+      maxent
+      memm
+    }.freeze
+
+    class << self
+      attr_reader :attribute_names, :algorithms, :types
 
       # Returns the default options.
       def defaults
         @defaults ||= new.attributes
       end
-
-      # Returns the list of supported algorithm options.
-      def algorithms
-        @algorithms ||= %w{ l-bfgs sgd-l1 bcd rprop rprop+ rprop- auto }.freeze
-      end
-
     end
 
     attr_accessor :compress
@@ -38,13 +62,15 @@ module Wapiti
     # Updates the value of the attribute identified by +name+ with the
     # passed-in +value+.
     def []=(name, value)
-      raise ArgumentError, "bad attribute name: #{name}" unless has_attribute?(name)
+      raise ArgumentError,
+        "bad attribute name: #{name}" unless has_attribute?(name)
+
       send("#{name}=", value)
     end
 
     # Updates all the attributes from the passed-in hash.
     def update(attributes = {})
-      attributes.each_pair do |k,v|
+      attributes.each_pair do |k, v|
         mid = "#{k}="
         send(mid, v) if respond_to?(mid)
       end
@@ -53,28 +79,30 @@ module Wapiti
 
     alias update_attributes update
 
+    def update!(*args)
+      update(*args)
+      validate!
+    end
+
     def lbfgs
-      { :clip => clip, :histsz => histsz, :maxls => maxls }
+      attributes(:clip, :histsz, :maxls)
     end
 
     def sgdl1
-      { :eta0 => eta0, :alpha => alpha }
+      attributes(:eta0, :alpha)
     end
 
     def bcd
-      { :kappa => kappa }
+      attributes(:kappa)
     end
 
     def rprop
-      {
-        :stpmin => stpmin, :stpmax => stpmax, :stpinc => stpinc,
-        :stpdec => stpdec, :cutoff => cutoff
-      }
+      attributes(:stpmin, :stpmax, :stpinc, :stpdec, :cutoff)
     end
 
-    # Returns a hash of all the attributes with their names and values.
-    def attributes
-      Hash[*Options.attribute_names.map { |a| [a, send(a)] }.flatten]
+    # Returns a hash of the given attributes with their names and values.
+    def attributes(attrs = Options.attribute_names)
+      Hash[*attrs.map { |a| [a, send(a)] }.flatten]
     end
 
     alias to_hash attributes
@@ -87,9 +115,14 @@ module Wapiti
       self.class.algorithms.include?(algorithm)
     end
 
+    def valid_type?
+      self.class.types.include?(type)
+    end
+
     def valid?
       validate.empty?
     end
+
 
     def validate
       e = []
@@ -102,6 +135,7 @@ module Wapiti
         e << "invalid value for #{name}: #{send(name)}" unless send(name) >= 0.0
       end
 
+      e << "unknown type: #{type}" unless valid_type?
       e << "unknown algorithm: #{algorithm}" unless valid_algorithm?
       e << "BCD not supported for training maxent models" if maxent && algorithm == 'bcd'
       e
@@ -115,10 +149,13 @@ module Wapiti
       end
     end
 
+    def validate!
+      errors = validate
+      raise ArgumentError, errors.join('; ') unless errors.empty?
+    end
+
     def <=>(other)
       other.respond_to?(:attributes) ? attributes <=> other.attributes : nil
     end
-
   end
-
 end

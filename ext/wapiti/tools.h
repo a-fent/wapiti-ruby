@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <ruby.h>
 
 #define unused(v) ((void)(v))
 #define none ((uint64_t)-1)
@@ -39,10 +40,12 @@
 #undef max
 #define max(a, b) ((a) < (b) ? (b) : (a))
 
-void fatal(const char *msg, ...);
-void pfatal(const char *msg, ...);
-void warning(const char *msg, ...);
-void info(const char *msg, ...);
+FILE *ufopen(VALUE path, const char *mode);
+
+void fatal(const char *fmt, ...);
+void pfatal(const char *fmt, ...);
+void warning(const char *fmt, ...);
+void info(const char *fmt, ...);
 
 void *wapiti_xmalloc(size_t size);
 void *wapiti_xrealloc(void *ptr, size_t size);

@@ -10,43 +10,15 @@
 #include "quark.h"
 #include "tools.h"
 #include "wapiti.h"
-
 #include "native.h"
 
 VALUE mWapiti;
 VALUE mNative;
-
 VALUE cOptions;
 VALUE cModel;
-
 VALUE cArgumentError;
 VALUE cNativeError;
-VALUE cConfigurationError;
 VALUE cLogger;
-
-
-/* --- Forward declarations --- */
-
-int wapiti_main(int argc, char *argv[argc]);
-
-void dolabel(mdl_t *mdl);
-
-
-/* --- Utilities --- */
-
-static const struct {
-  const char *name;
-  void (* train)(mdl_t *mdl);
-} trn_lst[] = {
-  {"l-bfgs", trn_lbfgs},
-  {"sgd-l1", trn_sgdl1},
-  {"bcd",    trn_bcd  },
-  {"rprop",  trn_rprop},
-  {"rprop+", trn_rprop},
-  {"rprop-", trn_rprop}
-};
-static const uint32_t trn_cnt = sizeof(trn_lst) / sizeof(trn_lst[0]);
-
 
 /* --- Options Class --- */
 
@@ -69,6 +41,14 @@ static void copy_string(char **dst, VALUE rb_string) {
   memcpy(*dst, StringValuePtr(rb_string), RSTRING_LEN(rb_string) + 1);
 }
 
+// Moves a string to the heap. We use this to move default
+// values to the heap during initialization.
+static char *to_heap(const char *string) {
+  char* ptr = calloc(strlen(string), sizeof(char));
+  memcpy(ptr, string, strlen(string));
+  return ptr;
+}
+
 
 // Constructor / Desctructor
 
@@ -77,11 +57,11 @@ static void mark_options(opt_t* options __attribute__((__unused__))) {
 }
 
 static void deallocate_options(opt_t* options) {
-
   // free string options
   if (options->input) { free(options->input); }
   if (options->output) { free(options->output); }
   if (options->algo) { free((void*)options->algo); }
+  if (options->type) { free((void*)options->type); }
   if (options->devel) { free(options->devel); }
   if (options->pattern) { free((void*)options->pattern); }
 
@@ -102,11 +82,10 @@ static VALUE initialize_options(int argc, VALUE *argv, VALUE self) {
     options->maxiter = INT_MAX;
   }
 
-  // copy the default algorithm name to the heap so that all options strings
-  // are on the heap
-  char* tmp = calloc(strlen(options->algo), sizeof(char));
-  memcpy(tmp, options->algo, strlen(options->algo));
-  options->algo = tmp;
+  // Copy default algorithm and type name to the heap
+  // so that all options strings are on the heap.
+  options->algo = to_heap(options->algo);
+  options->type = to_heap(options->type);
 
   if (argc > 1) {
     rb_raise(cArgumentError,
@@ -116,7 +95,7 @@ static VALUE initialize_options(int argc, VALUE *argv, VALUE self) {
   // set defaults
   if (argc) {
     Check_Type(argv[0], T_HASH);
-    (void)rb_funcall(self, rb_intern("update"), 1, argv[0]);
+    (void)rb_funcall(self, rb_intern("update!"), 1, argv[0]);
   }
 
   // yield self if block_given?
@@ -432,7 +411,6 @@ static VALUE options_model(VALUE self) {
 static VALUE options_set_model(VALUE self, VALUE rb_string) {
   opt_t *options = get_options(self);
   copy_string(&(options->model), rb_string);
-
   return rb_string;
 }
 
@@ -444,19 +422,17 @@ static VALUE options_algorithm(VALUE self) {
 static VALUE options_set_algorithm(VALUE self, VALUE rb_string) {
   opt_t *options = get_options(self);
   copy_string((char**)&(options->algo), rb_string);
-
   return rb_string;
 }
 
-static VALUE options_development_data(VALUE self) {
-  char *development_data = get_options(self)->devel;
-  return rb_str_new2(development_data ? development_data : "");
+static VALUE options_type(VALUE self) {
+  const char *type = get_options(self)->type;
+  return rb_str_new2(type ? type : "");
 }
 
-static VALUE options_set_development_data(VALUE self, VALUE rb_string) {
+static VALUE options_set_type(VALUE self, VALUE rb_string) {
   opt_t *options = get_options(self);
-  copy_string(&(options->devel), rb_string);
-
+  copy_string((char**)&(options->type), rb_string);
   return rb_string;
 }
 
@@ -566,11 +542,8 @@ void Init_options() {
   rb_define_alias(cOptions, "algo", "algorithm");
   rb_define_alias(cOptions, "algo=", "algorithm=");
 
-  rb_define_method(cOptions, "development_data", options_development_data, 0);
-  rb_define_method(cOptions, "development_data=", options_set_development_data, 1);
-
-  rb_define_alias(cOptions, "devel", "development_data");
-  rb_define_alias(cOptions, "devel=", "development_data=");
+  rb_define_method(cOptions, "type", options_type, 0);
+  rb_define_method(cOptions, "type=", options_set_type, 1);
 
   rb_define_method(cOptions, "clip", options_clip, 0);
   rb_define_method(cOptions, "clip=", options_set_clip, 1);
@@ -669,15 +642,13 @@ static VALUE initialize_model(int argc, VALUE *argv, VALUE self) {
   if (argc) {
     if (TYPE(argv[0]) == T_HASH) {
       options = rb_funcall(cOptions, rb_intern("new"), 1, argv[0]);
-    }
-    else {
+    } else {
       if (strncmp("Wapiti::Options", rb_obj_classname(argv[0]), 15) != 0) {
         rb_raise(cArgumentError, "argument must be a hash or an options instance");
       }
       options = argv[0];
     }
-  }
-  else {
+  } else {
     options = rb_funcall(cOptions, rb_intern("new"), 0);
   }
 
@@ -694,7 +665,7 @@ static VALUE initialize_model(int argc, VALUE *argv, VALUE self) {
   }
 
   // initialize counters
-  rb_funcall(self, rb_intern("clear_counters"), 0);
+  rb_funcall(self, rb_intern("reset_counters"), 0);
 
   return self;
 }
@@ -748,17 +719,13 @@ static VALUE model_save(int argc, VALUE *argv, VALUE self) {
   }
 
   // open the output file
-  FILE *file = 0;
   VALUE path = rb_ivar_get(self, rb_intern("@path"));
 
   if (NIL_P(path)) {
     fatal("failed to save model: no path given");
   }
 
-  if (!(file = fopen(StringValueCStr(path), "w"))) {
-    fatal("failed to save model: failed to open model file");
-  }
-
+  FILE *file = ufopen(path, "w");
   mdl_save(model, file);
   fclose(file);
 
@@ -780,17 +747,13 @@ static VALUE model_load(int argc, VALUE *argv, VALUE self) {
   }
 
   // open the model file
-  FILE *file = 0;
   VALUE path = rb_ivar_get(self, rb_intern("@path"));
 
   if (NIL_P(path)) {
     fatal("failed to load model: no path given");
   }
 
-  if (!(file = fopen(StringValueCStr(path), "r"))) {
-    fatal("failed to load model: failed to open model file");
-  }
-
+  FILE *file = ufopen(path, "r");
   mdl_load(model, file);
   fclose(file);
 
@@ -846,30 +809,44 @@ static dat_t *to_dat(rdr_t *reader, VALUE data, bool labelled) {
   return dat;
 }
 
-
-static VALUE model_train(VALUE self, VALUE data) {
-
-  mdl_t* model = get_model(self);
-
-  uint32_t trn;
-  for (trn = 0; trn < trn_cnt; trn++) {
-    if (!strcmp(model->opt->algo, trn_lst[trn].name)) break;
-  }
-
-  if (trn == trn_cnt) {
-    fatal("failed to train model: unknown algorithm '%s'", model->opt->algo);
-  }
-
+static dat_t *ld_dat(rdr_t *reader, VALUE data, bool labelled) {
   FILE *file;
+  dat_t *dat = (dat_t*)0;
+
+  switch (TYPE(data)) {
+    case T_STRING:
+      file = ufopen(data, "r");
+      dat = rdr_readdat(reader, file, labelled);
+      fclose(file);
+      break;
+
+    case T_ARRAY:
+      dat = to_dat(reader, data, labelled);
+      break;
+
+    default:
+      fatal("invalid data type (expected instance of String or Array)");
+  }
+
+  return dat;
+}
+
+
+static VALUE model_train(VALUE self, VALUE train, VALUE devel) {
+  FILE *file;
+  mdl_t *model = get_model(self);
+  trn_t trn = trn_get(model->opt->algo);
+  model->type = typ_get(model->opt->type);
 
   // Load the pattern file. This will unlock the database if previously
   // locked by loading a model.
   if (model->opt->pattern) {
+    info("load patterns");
     file = fopen(model->opt->pattern, "r");
 
     if (!file) {
-      fatal("failed to train model: failed to load pattern file '%s'",
-          model->opt->pattern);
+      pfatal("failed to train model: failed to load pattern file '%s'",
+        model->opt->pattern);
     }
 
     rdr_loadpat(model->reader, file);
@@ -882,25 +859,7 @@ static VALUE model_train(VALUE self, VALUE data) {
   // Load the training data. When this is done we lock the quarks as we
   // don't want to put in the model, informations present only in the
   // development set.
-
-  switch (TYPE(data)) {
-    case T_STRING:
-      if (!(file = fopen(StringValuePtr(data), "r"))) {
-        fatal("failed to train model: failed to open training data '%s",
-          StringValuePtr(data));
-      }
-
-      model->train = rdr_readdat(model->reader, file, true);
-      fclose(file);
-
-      break;
-    case T_ARRAY:
-      model->train = to_dat(model->reader, data, true);
-
-      break;
-    default:
-      fatal("failed to train model: invalid training data type (expected instance of String or Array)");
-  }
+  model->train = ld_dat(model->reader, train, true);
 
   qrk_lock(model->reader->lbl, true);
   qrk_lock(model->reader->obs, true);
@@ -911,30 +870,34 @@ static VALUE model_train(VALUE self, VALUE data) {
 
   // If present, load the development set in the model. If not specified,
   // the training dataset will be used instead.
-  if (model->opt->devel) {
-    if (!(file = fopen(model->opt->devel, "r"))) {
-      fatal("failed to train model: cannot open development file '%s'",
-          model->opt->devel);
-    }
-
-    model->devel = rdr_readdat(model->reader, file, true);
-    fclose(file);
+  if (TYPE(devel) != T_NIL) {
+    model->devel = ld_dat(model->reader, devel, true);
   }
 
-  // Initialize the model. If a previous model was loaded, this will be
-  // just a resync, else the model structure will be created.
-  // rb_funcall(self, rb_intern("sync"), 0);
+	// Initialize the model. If a previous model was loaded, this will be
+	// just a resync, else the model structure will be created.
+  info((model->theta == NULL) ? "initialize model" : "re-sync model");
 	mdl_sync(model);
 
-  // Train the model.
+	info("nb train:    %"PRIu32"", model->train->nseq);
+	if (model->devel != NULL)
+		info("nb devel:    %"PRIu32"", model->devel->nseq);
+	info("nb labels:   %"PRIu32"", model->nlbl);
+	info("nb blocks:   %"PRIu64"", model->nobs);
+	info("nb features: %"PRIu64"", model->nftr);
+
+	info("training model with %s", model->opt->algo);
   uit_setup(model);
-  trn_lst[trn].train(model);
+  trn(model);
   uit_cleanup(model);
 
-  // If requested compact the model.
   if (model->opt->compact) {
-    // rb_funcall(self, rb_intern("compact"), 0);
+		const uint64_t O = model->nobs;
+		const uint64_t F = model->nftr;
+		info("compacting model");
 		mdl_compact(model);
+		info("%8"PRIu64" observations removed", O - model->nobs);
+		info("%8"PRIu64" features removed", F - model->nftr);
   }
 
   return self;
@@ -977,8 +940,7 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
 
   if (N == 1) {
     tag_viterbi(model, seq, out, scs, psc);
-  }
-  else {
+  } else {
     tag_nbviterbi(model, seq, N, (void*)out, scs, (void*)psc);
   }
 
@@ -990,16 +952,13 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
     if (!model->opt->label) {
       VALUE token = rb_str_new2(raw->lines[t]);
 
-      #ifdef HAVE_RUBY_ENCODING_H
       int enc = rb_enc_find_index("UTF-8");
       rb_enc_associate_index(token, enc);
-      #endif
 
       rb_ary_push(tokens, token);
     }
 
     for (n = 0; n < N; ++n) {
-
       uint64_t lbl = out[t * N + n];
       rb_ary_push(tokens, rb_str_new2(qrk_id2str(lbls, lbl)));
 
@@ -1007,7 +966,6 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
       if (model->opt->outsc) {
         rb_ary_push(tokens, rb_float_new(psc[t * N + n]));
       }
-
     }
 
     // yield token/label pair to block if given
@@ -1017,9 +975,7 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
 
     rb_ary_push(sequence, tokens);
 
-
     // TODO output sequence score: scs[n] (float)
-
   }
 
   // Statistics
@@ -1033,8 +989,7 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
       if (seq->pos[t].lbl != out[t * N]) {
         terr++;
         err = 1;
-      }
-      else {
+      } else {
         stat[2][out[t * N]]++;
       }
     }
@@ -1050,9 +1005,7 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
 
     serr = FIX2INT(rb_ivar_get(self, rb_intern("@sequence_errors")));
     rb_ivar_set(self, rb_intern("@sequence_errors"), INT2FIX(serr + err));
-
   }
-
 
   // Cleanup memory used for this sequence
   xfree(scs);
@@ -1087,7 +1040,6 @@ static VALUE decode_sequence_array(VALUE self, VALUE array) {
     for (j = 0; j < k; ++j) {
       VALUE line = rb_ary_entry(sequence, j);
       Check_Type(line, T_STRING);
-
       raw->lines[j] = StringValueCStr(line);
     }
 
@@ -1100,13 +1052,7 @@ static VALUE decode_sequence_array(VALUE self, VALUE array) {
 }
 
 static VALUE decode_sequence_file(VALUE self, VALUE path) {
-  Check_Type(path, T_STRING);
-  FILE *file;
-
-  if (!(file = fopen(StringValueCStr(path), "r"))) {
-    fatal("failed to label data: could not open file '%s'", StringValueCStr(path));
-  }
-
+  FILE *file = ufopen(path, "r");
   mdl_t *model = get_model(self);
   raw_t *raw;
 
@@ -1116,7 +1062,6 @@ static VALUE decode_sequence_file(VALUE self, VALUE path) {
   // to take care of not discarding the raw input as we want to send it
   // back to the output with the additional predicted labels.
   while (!feof(file)) {
-
     // So, first read an input sequence keeping the raw_t object
     // available, and label it with Viterbi.
     if ((raw = rdr_readraw(model->reader, file)) == 0) {
@@ -1130,12 +1075,12 @@ static VALUE decode_sequence_file(VALUE self, VALUE path) {
   return result;
 }
 
-// cal-seq:
+// call-seq:
 //   m.label(tokens, options = {})  # => array of labelled tokens
 //   m.label(filename, options = {}) # => array of labelled tokens
 //
 static VALUE model_label(VALUE self, VALUE data) {
-  VALUE result;
+  VALUE result = (VALUE)0;
 
   switch (TYPE(data)) {
     case T_STRING:
@@ -1154,111 +1099,22 @@ static VALUE model_label(VALUE self, VALUE data) {
 static void Init_model() {
   cModel = rb_define_class_under(mWapiti, "Model", rb_cObject);
   rb_define_alloc_func(cModel, allocate_model);
-
-  rb_define_method(cModel, "initialize", initialize_model, -1);
-
   rb_define_attr(cModel, "options", 1, 0);
 
-
+  rb_define_method(cModel, "initialize", initialize_model, -1);
   rb_define_method(cModel, "nlbl", model_nlbl, 0);
   rb_define_method(cModel, "labels", model_labels, 0);
-
   rb_define_method(cModel, "nobs", model_nobs, 0);
   rb_define_alias(cModel, "observations", "nobs");
-
   rb_define_method(cModel, "nftr", model_nftr, 0);
   rb_define_alias(cModel, "features", "nftr");
-
   rb_define_method(cModel, "sync", model_sync, 0);
   rb_define_method(cModel, "compact", model_compact, 0);
   rb_define_method(cModel, "save", model_save, -1);
   rb_define_method(cModel, "load", model_load, -1);
-
-  rb_define_method(cModel, "train", model_train, 1);
+  rb_define_method(cModel, "train", model_train, 2);
   rb_define_method(cModel, "label", model_label, 1);
 }
-
-/* --- Top-Level Utility Methods --- */
-
-
-static VALUE label(VALUE self __attribute__((__unused__)), VALUE rb_options) {
-  if (strncmp("Wapiti::Options", rb_obj_classname(rb_options), 15) != 0) {
-    rb_raise(cArgumentError, "argument must be a native options instance");
-  }
-
-  opt_t *options = get_options(rb_options);
-
-  if (options->mode != 1) {
-    rb_raise(cArgumentError,
-      "invalid options argument: mode should be set to 1 for labelling");
-  }
-
-  mdl_t *model = mdl_new(rdr_new(options->maxent));
-  model->opt = options;
-
-  dolabel(model);
-
-  mdl_free(model);
-
-  return Qnil;
-}
-
-#if defined EXTRA
-static VALUE dump(VALUE self __attribute__((__unused__)), VALUE rb_options) {
-  if (strncmp("Wapiti::Options", rb_obj_classname(rb_options), 15) != 0) {
-    rb_raise(cArgumentError, "argument must be a native options instance");
-  }
-
-  opt_t *options = get_options(rb_options);
-
-  if (options->mode != 2) {
-    rb_raise(cArgumentError,
-        "invalid options argument: mode should be set to 2 for training");
-  }
-
-  mdl_t *model = mdl_new(rdr_new(options->maxent));
-  model->opt = options;
-
-  dodump(model);
-
-  mdl_free(model);
-
-  return Qnil;
-}
-
-// This function is a proxy for Wapiti's main entry point.
-static VALUE wapiti(VALUE self __attribute__((__unused__)), VALUE arguments) {
-  int result = -1, argc = 0;
-  char **ap, *argv[18], *input, *tmp;
-
-  Check_Type(arguments, T_STRING);
-  tmp = StringValueCStr(arguments);
-
-  // allocate space for argument vector
-  input = (char*)malloc(strlen(tmp) + 8);
-
-  // prepend command name
-  strncpy(input, "wapiti ", 8);
-  strncat(input, tmp, strlen(input) - 8);
-
-  // remember allocation pointer
-  tmp = input;
-
-  // turn input string into argument vector (using
-  // only the first seventeen tokens from input)
-  for (ap = argv; (*ap = strsep(&input, " \t")) != (char*)0; ++argc) {
-    if ((**ap != '\0') && (++ap >= &argv[18])) break;
-  }
-
-  // call main entry point
-  result = wapiti_main(argc, argv);
-
-  // free allocated memory
-  free(tmp);
-
-  return INT2FIX(result);
-}
-#endif
 
 /* --- Wapiti Extension Entry Point --- */
 
@@ -1268,11 +1124,7 @@ void Init_native() {
 
   cArgumentError = rb_const_get(rb_mKernel, rb_intern("ArgumentError"));
   cNativeError = rb_const_get(mWapiti, rb_intern("NativeError"));
-  cConfigurationError = rb_const_get(mWapiti, rb_intern("ConfigurationError"));
   cLogger = rb_funcall(mWapiti, rb_intern("log"), 0);
-
-  rb_define_singleton_method(mNative, "label", label, 1);
-  // rb_define_singleton_method(mNative, "wapiti", wapiti, 1);
 
   rb_define_const(mNative, "VERSION", rb_str_new2(VERSION));
 

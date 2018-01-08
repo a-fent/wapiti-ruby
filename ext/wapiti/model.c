@@ -271,7 +271,7 @@ void mdl_save(mdl_t *mdl, FILE *file) {
 	rdr_save(mdl->reader, file);
 	for (uint64_t f = 0; f < mdl->nftr; f++)
 		if (mdl->theta[f] != 0.0)
-			fprintf(file, "%"PRIu64"=%.16le\n", f, mdl->theta[f]);
+			fprintf(file, "%"PRIu64"=%le\n", f, mdl->theta[f]);
 }
 
 /* mdl_load:

@@ -1,5 +1,6 @@
 module Wapiti
   require 'builder'
+  require 'forwardable'
 
   class Sequence
     extend Forwardable
@@ -34,7 +35,15 @@ module Wapiti
     end
 
     def tagged?
-      all?(&:label?)
+      tokens.all?(&:label?)
+    end
+
+    def label?(label)
+      tokens.any? { |tk| tk.label == label }
+    end
+
+    def labels
+      tokens.map(&:label).uniq
     end
 
     def each
@@ -70,11 +79,11 @@ module Wapiti
     end
 
     def to_a(**options)
-      map { |tk| tk.to_s(**options) }
+      tokens.map { |tk| tk.to_s(**options) }
     end
 
     def to_s(delimiter: "\n", **options)
-      map { |tk| tk.to_s(**options) }.join(delimiter)
+      tokens.map { |tk| tk.to_s(**options) }.join(delimiter)
     end
 
     def to_sentence(delimiter: ' ')

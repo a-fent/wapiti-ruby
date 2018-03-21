@@ -22,11 +22,10 @@ Gem::Specification.new do |s|
   s.add_runtime_dependency('builder', '~>3.2')
 
   s.files =
-    `git ls-files`.split('\n') - `git ls-files spec/*`.split('\n') - %w{
+    `git ls-files`.split("\n") - `git ls-files spec`.split("\n") - %w{
       .coveralls.yml
-      .travis.yml
-      .gitmodules
       .gitignore
+      .gitmodules
       .rspec
       .simplecov
       .travis.yml

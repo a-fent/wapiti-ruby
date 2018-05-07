@@ -834,9 +834,10 @@ static dat_t *ld_dat(rdr_t *reader, VALUE data, bool labelled) {
 
 static VALUE model_train(VALUE self, VALUE train, VALUE devel) {
   FILE *file;
+  info("Entering native train");
   mdl_t *model = get_model(self);
-  trn_t trn = trn_get(model->opt->algo);
-  model->type = typ_get(model->opt->type);
+  trn_t trn = trn_get("l-bfgs");
+  model->type = typ_get("crf");
 
   // Load the pattern file. This will unlock the database if previously
   // locked by loading a model.

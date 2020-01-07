@@ -912,7 +912,6 @@ static VALUE model_labels(VALUE self) {
   qrk_t *lp = model->reader->lbl;
 
   VALUE labels = rb_ary_new2(Y);
-
   for (unsigned int i = 0; i < Y; ++i) {
     rb_ary_push(labels, rb_str_new2(qrk_id2str(lp, i)));
   }
@@ -980,14 +979,21 @@ static VALUE decode_sequence(VALUE self, mdl_t *model, raw_t *raw) {
   }
 
   // Statistics
+
   if (model->opt->check) {
     int err = 0;
+    uint32_t lbl = 0;
 
     for (t = 0; t < T; ++t) {
-      stat[0][seq->pos[t].lbl]++;
+      lbl = seq->pos[t].lbl;
+
+      // ((uint32_t)-1) is a magic value for no asigned token
+      if (lbl != ((uint32_t)-1)) {
+        stat[0][lbl]++;
+      }
       stat[1][out[t * N]]++;
 
-      if (seq->pos[t].lbl != out[t * N]) {
+      if (lbl != out[t * N]) {
         terr++;
         err = 1;
       } else {
